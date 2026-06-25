@@ -19,6 +19,27 @@ type A struct {
 	Slice []A               `yaml:"slice"`
 }
 
+// argValue is a custom unmarshaler accepting either a scalar or a sequence.
+type argValue struct {
+	str  string
+	list []string
+}
+
+func (a *argValue) UnmarshalYAML(unmarshal func(any) error) error {
+	var s string
+	if err := unmarshal(&s); err == nil {
+		a.str = s
+
+		return nil
+	}
+
+	return unmarshal(&a.list)
+}
+
+type withArgs struct {
+	Args map[string]argValue `yaml:"args"`
+}
+
 //go:embed testdata/valid.yaml
 var valid []byte
 
@@ -69,6 +90,29 @@ func TestUnmarshalStrict(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+		})
+	}
+}
+
+// TestUnmarshalStrictCustomUnmarshaler checks that a node shape accepted by a custom unmarshaler is not rejected.
+func TestUnmarshalStrictCustomUnmarshaler(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		data string
+	}{
+		{
+			name: "scalar arg value",
+			data: "args:\n  issuer: https://one\n",
+		},
+		{
+			name: "sequence arg value",
+			data: "args:\n  issuer:\n    - https://one\n    - https://two\n",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var w withArgs
+
+			require.NoError(t, xyaml.UnmarshalStrict([]byte(tt.data), &w))
 		})
 	}
 }

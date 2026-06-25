@@ -107,7 +107,25 @@ func structKeys(typ reflect.Type) (map[string][]int, reflect.Type) {
 	return availableKeys, typ
 }
 
-var typeOfInterfaceAny = reflect.TypeOf((*any)(nil)).Elem()
+// obsoleteUnmarshaler is the deprecated unmarshaler interface still supported by the YAML library.
+type obsoleteUnmarshaler interface {
+	UnmarshalYAML(unmarshal func(any) error) error
+}
+
+var (
+	typeOfInterfaceAny = reflect.TypeOf((*any)(nil)).Elem()
+
+	typeOfUnmarshaler         = reflect.TypeOf((*yaml.Unmarshaler)(nil)).Elem()
+	typeOfObsoleteUnmarshaler = reflect.TypeOf((*obsoleteUnmarshaler)(nil)).Elem()
+)
+
+// implementsUnmarshaler checks if the type (or a pointer to it) has a custom YAML unmarshaler.
+func implementsUnmarshaler(typ reflect.Type) bool {
+	ptr := reflect.PointerTo(typ)
+
+	return typ.Implements(typeOfUnmarshaler) || ptr.Implements(typeOfUnmarshaler) ||
+		typ.Implements(typeOfObsoleteUnmarshaler) || ptr.Implements(typeOfObsoleteUnmarshaler)
+}
 
 //nolint:gocyclo,cyclop,gocognit
 func internalCheckUnknownKeys(typ reflect.Type, spec *yaml.Node) (unknown any, err error) {
@@ -130,6 +148,11 @@ func internalCheckUnknownKeys(typ reflect.Type, spec *yaml.Node) (unknown any, e
 		case reflect.Struct:
 			availableKeys, typ = structKeys(typ)
 		default:
+			// a custom unmarshaler may accept a mapping into a non-struct type
+			if implementsUnmarshaler(typ) {
+				return nil, nil //nolint:nilnil
+			}
+
 			return unknown, fmt.Errorf("unexpected type for yaml mapping: %s", typ)
 		}
 
@@ -178,6 +201,11 @@ func internalCheckUnknownKeys(typ reflect.Type, spec *yaml.Node) (unknown any, e
 		}
 	case yaml.SequenceNode:
 		if typ.Kind() != reflect.Slice {
+			// a custom unmarshaler may accept a sequence into a non-slice type
+			if implementsUnmarshaler(typ) {
+				return nil, nil //nolint:nilnil
+			}
+
 			return unknown, fmt.Errorf("unexpected type for yaml sequence: %s", typ)
 		}
 
